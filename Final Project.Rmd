@@ -1,0 +1,104 @@
+---
+title: "Practical Machine Learning - Final Project"
+author: "Kalai Selvan"
+date: "April 3, 2016"
+output: html_document
+---
+
+####Background
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, the goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants and predict how well they performed barbell lifts. The data for this project come from: http://groupware.les.inf.puc-rio.br/har.
+
+####Load the data
+First Load the required libraries
+```{r}
+library(caret)
+library(rpart)
+library(randomForest)
+library(knitr)
+```
+
+Load the training and test data. 
+Note: The test data will be loaded as validation since part of the training data will be used for testing the model before predicting on the test data.
+
+```{r}
+training <- read.csv("pml-training.csv", header=TRUE, na.strings = c("","NA","#DIV/0!"))
+validation <- read.csv("pml-testing.csv", header=TRUE, na.strings = c("","NA","#DIV/0!"))
+```
+
+####Clean and prepare the data
+Remove variables that contain more than 80% NA values
+```{r}
+removeVars <- names(training)[sapply((as.data.frame(is.na(training[,1:160]))),sum) > 0.8*nrow(training)]
+trainingClean <- subset(training, select= !(names(training) %in% c(removeVars)))
+```
+
+Remove first five variables that don't seem to be relevant for the prediction
+```{r}
+trainingClean <- trainingClean[,-(1:5)]
+```
+
+Remove variables with near zero variance
+```{r}
+trainingClean <- trainingClean[!nearZeroVar(trainingClean, saveMetrics = TRUE)$nzv]
+```
+
+In the validdation set, retain only those variables that are in the trainingClean set
+```{r}
+validation <- subset(validation, select = names(validation) %in% names(trainingClean))
+dim(validation)
+```
+
+Split trainingClean into training and testing
+```{r}
+inTrain <- createDataPartition(y=trainingClean$classe, p=0.7, list=FALSE)
+training <- trainingClean[inTrain,]
+dim(training)
+
+testing <- trainingClean[-inTrain,]
+dim(testing)
+```
+
+
+####Fit and evaluate the prediction models
+
+Set the seed for reproducibility
+```{r}
+set.seed(123123)
+```
+
+Build a Random Forest model and check the accuracy
+```{r}
+modrf <- randomForest(classe ~ ., data=training)
+predrf <- predict(modrf,testing)
+confusionMatrix(predrf,testing$classe)$overall[1]
+```
+
+Build a rpart model and check the accuracy
+```{r}
+modrpart <- train(classe ~ ., method="rpart", data=training)
+predrpart <- predict(modrpart,testing)
+confusionMatrix(predrpart,testing$classe)$overall[1]
+```
+
+Accuracy of Random Forest model is better. The out of sample error rate is `r 1-confusionMatrix(predrf,testing$classe)$overall[1]`. Hence we will choose the Random Forest model for predicting the outcome.
+
+####Predict the results
+For some of the predictors in validation set, the class is not the same as in the training set. Hence set the type of the predictors in validation set to be the same as in training set.
+First, find the predictors with class that do not match and thier corrsponding class in training set
+```{r}
+sapply(training[names(which(sapply(training[-54],class) != sapply(validation,class)))], class)
+```
+
+Based on the output above, convert the class of the predictors to match the training set as follows:
+```{r}
+validation$magnet_dumbbell_z <- as.numeric(validation$magnet_dumbbell_z)
+validation$magnet_forearm_y <- as.numeric(validation$magnet_forearm_y)
+validation$magnet_forearm_z <- as.numeric(validation$magnet_forearm_z)
+```
+
+Now, predict the results using the validation set
+```{r}
+predictionS <- predict(modrf, validation)
+predictionS
+```
